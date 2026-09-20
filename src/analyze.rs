@@ -19,8 +19,10 @@ struct Meta {
     parent: Option<String>,
 }
 
-// Quota budget per analysis, roughly: 3 search calls (the scarce one: 30/min/token),
-// ~5 REST calls, ~4 GraphQL calls. Everything fan-out shaped goes through aliased GraphQL batches.
+// Quota budget per analysis, roughly: 3–9 search calls (the scarce one: 30/min/token),
+// ~5 REST calls, ~15 GraphQL calls. Everything fan-out shaped goes through aliased GraphQL batches.
+pub const WINDOW_DAYS: i64 = 90;
+const SEARCH_MAX_PAGES: usize = 3;
 const DEPENDENCY_SOURCE_REPOS: usize = 12;
 const DEPENDENCY_CONCURRENCY: usize = 2;
 const REPO_META_LOOKUPS: usize = 60;
@@ -144,6 +146,28 @@ async fn repo_meta(gh: &Session, repos: &[String]) -> HashMap<String, Meta> {
     out
 }
 
+/// Everything matching within the window, newest first, up to SEARCH_MAX_PAGES × 100.
+/// Returns the items and GitHub's total so the UI can say when we hit the cap.
+async fn search(gh: &Session, query: String, sort: &str) -> Result<(Vec<Value>, u64), Error> {
+    let mut items = Vec::new();
+    let mut total = 0;
+    for page in 1..=SEARCH_MAX_PAGES {
+        let v = gh
+            .get(format!(
+                "/search/{query}&sort={sort}&order=desc&per_page=100&page={page}"
+            ))
+            .await?;
+        total = v["total_count"].as_u64().unwrap_or(0);
+        let batch = arr(&v["items"]);
+        let full_page = batch.len() == 100;
+        items.extend(batch);
+        if !full_page || items.len() as u64 >= total {
+            break;
+        }
+    }
+    Ok((items, total))
+}
+
 async fn sponsoring(gh: &Session, login: &str) -> Result<Value, Error> {
     if !gh.authenticated() {
         return Ok(json!({ "totalCount": 0, "nodes": [] }));
@@ -216,18 +240,33 @@ pub async fn analyze(gh: &Session, login: &str) -> Result<Value, Error> {
         }
     }
 
+    let since = (chrono::Utc::now() - chrono::Duration::days(WINDOW_DAYS))
+        .format("%Y-%m-%d")
+        .to_string();
     let (prs, issues, commits, sponsoring, deps) = tokio::join!(
-        gh.get(format!("/search/issues?q=type:pr+author:{login}&sort=created&order=desc&per_page=100&advanced_search=true")),
-        gh.get(format!("/search/issues?q=type:issue+author:{login}&sort=created&order=desc&per_page=100&advanced_search=true")),
-        gh.get(format!("/search/commits?q=author:{login}&per_page=100&sort=author-date&order=desc")),
+        search(
+            gh,
+            format!("issues?q=type:pr+author:{login}+created:>={since}&advanced_search=true"),
+            "created"
+        ),
+        search(
+            gh,
+            format!("issues?q=type:issue+author:{login}+created:>={since}&advanced_search=true"),
+            "created"
+        ),
+        search(
+            gh,
+            format!("commits?q=author:{login}+author-date:>={since}"),
+            "author-date"
+        ),
         sponsoring(gh, &login),
         dependency_repos(gh, &dep_sources),
     );
-    let (prs, issues, commits, sponsoring) = (prs?, issues?, commits?, sponsoring?);
+    let ((prs, prs_total), (issues, issues_total), (commits, commits_total), sponsoring) =
+        (prs?, issues?, commits?, sponsoring?);
 
-    let search_items = |v: &Value, kind: &'static str| -> Vec<Item> {
-        arr(&v["items"])
-            .iter()
+    let search_items = |v: &[Value], kind: &'static str| -> Vec<Item> {
+        v.iter()
             .map(|i| Item {
                 kind,
                 repo: s(&i["repository_url"])
@@ -243,7 +282,7 @@ pub async fn analyze(gh: &Session, login: &str) -> Result<Value, Error> {
     };
     let mut items = search_items(&prs, "pr");
     items.extend(search_items(&issues, "issue"));
-    items.extend(arr(&commits["items"]).iter().map(|c| {
+    items.extend(commits.iter().map(|c| {
         Item {
             kind: "commit",
             repo: lower(&c["repository"], "full_name"),
@@ -332,10 +371,11 @@ pub async fn analyze(gh: &Session, login: &str) -> Result<Value, Error> {
         "dependencies": deps,
         "items": items,
         "repos": repos,
+        "window": { "days": WINDOW_DAYS, "since": since },
         "sampled": {
-            "prs": prs["total_count"],
-            "issues": issues["total_count"],
-            "commits": commits["total_count"],
+            "prs": { "total": prs_total, "fetched": prs.len() },
+            "issues": { "total": issues_total, "fetched": issues.len() },
+            "commits": { "total": commits_total, "fetched": commits.len() },
             "sponsoring": sponsoring["totalCount"],
         },
     }))

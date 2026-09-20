@@ -218,7 +218,14 @@ impl Session {
             let status = res.status();
 
             if status == StatusCode::FORBIDDEN || status == StatusCode::TOO_MANY_REQUESTS {
-                if let Some(wait) = limit_wait(status, res.headers()) {
+                let from_headers = limit_wait(status, res.headers());
+                let body = res.text().await.unwrap_or_default();
+                // Secondary (abuse) limits sometimes arrive as a bare 403 with the hint only in the body.
+                let wait = from_headers.or_else(|| {
+                    body.contains("rate limit")
+                        .then_some(Duration::from_secs(60))
+                });
+                if let Some(wait) = wait {
                     match pool_token {
                         // A pool token ran dry: park it and let the loop try the next one.
                         Some((idx, _)) => {
@@ -232,7 +239,6 @@ impl Session {
                         }
                     }
                 }
-                let body = res.text().await.unwrap_or_default();
                 return Err(Error::Upstream(format!(
                     "GitHub {status} for {what}: {}",
                     body.chars().take(200).collect::<String>()

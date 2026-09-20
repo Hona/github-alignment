@@ -13,10 +13,11 @@ cargo run --release        # http://localhost:3000
 | `MAX_ANALYSES` | `8` | concurrent analyses; more wait up to 20s then get `503 busy` |
 | `MAX_OUTBOUND` | `24` | concurrent requests to GitHub |
 | `PER_IP_PER_MINUTE` | `6` | uncached lookups per IP |
+| `WINDOW_DAYS` | `90` | (compile-time constant in `analyze.rs` for now) |
 
 ## The algorithm
 
-Every contribution in your last ~100 PRs, ~100 issues, ~100 commits, plus everyone you sponsor,
+Every PR, issue and commit you authored in the **last 90 days** (up to 300 of each), plus everyone you sponsor,
 gets a **selflessness** score from 0 to 1 based on *who it was for*:
 
 | target | selflessness |
@@ -40,8 +41,8 @@ Commits on your fork of X count as X. All weights are sliders in the UI.
 
 ## Surviving a spike
 
-GitHub search is 30 requests/min per token and each analysis needs 3, so ~10 fresh analyses a
-minute per token is the hard ceiling. Everything else is built around that:
+GitHub search is 30 requests/min per token and each analysis needs 3–9 (one per 100 results per kind),
+so ~5 fresh analyses a minute per token is the hard ceiling. Everything else is built around that:
 
 - **Token pool**, round-robin; a token that hits a limit is parked until GitHub's reset time.
   Honors `Retry-After` and `X-RateLimit-Reset`, including GraphQL `RATE_LIMITED` inside a 200.
