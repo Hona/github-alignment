@@ -1,0 +1,43 @@
+# Tag a version to ship both halves:
+#   npm version patch && git push --follow-tags
+#
+# npm:        trusted publishing (OIDC), no token. One-time setup on npmjs.com →
+#             package → Settings → Trusted publisher → GitHub Actions, workflow "release.yml".
+# Cloudflare: repo secret CLOUDFLARE_API_TOKEN with the "Edit Cloudflare Workers" template.
+#             GITHUB_TOKENS lives in the Worker as a secret (wrangler secret put), not here.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm publish --access public --provenance
+
+  cloudflare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy

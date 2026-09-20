@@ -1,0 +1,24 @@
+name = "github-alignment"
+main = "src/worker.ts"
+compatibility_date = "2025-10-01"
+account_id = "39c67c75a6dea6b31be9c3b1d026086e"
+workers_dev = false
+
+routes = [{ pattern = "github-alignment.hona.dev", custom_domain = true }]
+
+[observability]
+enabled = true
+
+# Per-IP: 6 fresh analyses a minute per Cloudflare location. Cache hits and joins don't count.
+[[ratelimits]]
+name = "IP_LIMIT"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 6
+  period = 60
+
+# Secrets (wrangler secret put):
+#   GITHUB_TOKENS  comma-separated. Use tokens from a throwaway account or fine-grained PATs
+#                  with NO permissions: the site is public-data-only and a personal token
+#                  gains nothing but risk.

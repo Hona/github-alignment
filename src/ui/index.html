@@ -49,6 +49,13 @@
   #tokbox summary { font-size:11px; letter-spacing:.08em }
   #tokbox input { font-size:13px; width:100%; margin-top:8px }
   .stale { color:var(--dim); font-size:12px }
+  .local { margin-top:28px; padding:14px 16px; border:1px solid var(--line); border-radius:6px; font-size:12px; color:var(--dim); display:none }
+  .local.on { display:block }
+  .local.loud { border-color:var(--less) }
+  .local-why { display:flex; gap:8px; letter-spacing:.08em; text-transform:uppercase; font-size:11px }
+  .local code { display:block; margin:10px 0 8px; padding:10px 12px; background:#111318; border-radius:4px; color:var(--fg); font-size:14px; cursor:copy; user-select:all }
+  .local code:hover { outline:1px solid var(--line) }
+  .local b { color:var(--fg); font-weight:500 }
   .spark { display:block; margin:18px auto 0; overflow:visible }
   .spark path { transition:d .6s ease }
   .spark circle { transition:cx .6s ease, cy .6s ease, fill .6s }
@@ -64,6 +71,12 @@
   <details id="tokbox"><summary>have a token? bring your own quota</summary>
     <input id="token" type="password" placeholder="ghp_… (stays in this browser, sent only to this server)" />
   </details>
+
+  <aside class="local" id="local">
+    <div class="local-why"><span>public repos only</span><span>·</span><span>shared rate limit</span></div>
+    <code id="cmd">npx @hona/github-alignment</code>
+    <div class="local-what">runs this exact UI on your machine with your <b>gh</b> login → private repos counted, no queue</div>
+  </aside>
 
   <section id="result">
     <div class="who"><img id="avatar" alt="" /><span id="name"></span><span id="sample"></span></div>
@@ -223,6 +236,7 @@ $("f").onsubmit = async (e) => {
     const res = await fetch(`/api/${encodeURIComponent(login)}?v=2`, { headers: token ? { "x-github-token": token } : {} })
     const json = await res.json().catch(() => ({ error: `server said ${res.status}`, code: "server" }))
     if (json.error) {
+      if (json.code === "rate_limited" || json.code === "busy") $("local").classList.add("loud")
       if (json.code === "rate_limited" && json.retryAfter <= 120 && !token) scheduleRetry(json.retryAfter)
       else $("status").textContent = json.error
       $("status").className = "err"
@@ -230,12 +244,15 @@ $("f").onsubmit = async (e) => {
       return
     }
     data = json
+    $("local").classList.toggle("on", data.publicOnly)
+    $("local").classList.remove("loud")
+    $("cmd").textContent = `npx @hona/github-alignment ${data.login}`
     $("avatar").src = data.avatar
     $("name").textContent = data.login
     const age = Math.round((Date.now() / 1000 - data.cachedAt) / 60)
     const capped = ["prs", "issues", "commits"].filter((k) => data.sampled[k].fetched < data.sampled[k].total)
       .map((k) => `${k} capped at ${data.sampled[k].fetched}/${data.sampled[k].total}`).join(", ")
-    $("sample").textContent = `· last ${data.window.days} days · ${data.items.length} contributions`
+    $("sample").textContent = `· last ${data.window.days} days · ${data.items.length} contributions${data.publicOnly ? "" : " · incl. private"}`
       + (capped ? ` · ${capped}` : "")
       + (age > 1 ? ` · ${age}m ago${data.stale ? " (stale, GitHub is busy)" : ""}` : "")
     $("status").textContent = ""
@@ -248,6 +265,9 @@ $("f").onsubmit = async (e) => {
   }
   $("go").disabled = false
 }
+
+$("cmd").onclick = () => navigator.clipboard?.writeText($("cmd").textContent)
+fetch("/healthz").then((r) => r.json()).then((h) => $("local").classList.toggle("on", h.publicOnly)).catch(() => {})
 
 const u = new URLSearchParams(location.search).get("u")
 if (u) { $("login").value = u; $("f").requestSubmit() }

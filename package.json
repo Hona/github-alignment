@@ -1,0 +1,34 @@
+{
+  "name": "github-alignment",
+  "version": "0.1.0",
+  "description": "Are you selfish or selfless on GitHub? One line, one dot.",
+  "license": "MIT",
+  "author": "Hona",
+  "repository": "github:Hona/github-alignment",
+  "homepage": "https://github-alignment.hona.dev",
+  "type": "module",
+  "bin": {
+    "github-alignment": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "esbuild src/cli.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/cli.js --loader:.html=text --banner:js=\"#!/usr/bin/env node\"",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cli": "node --experimental-strip-types src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260918.1",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.36.0"
+  }
+}
