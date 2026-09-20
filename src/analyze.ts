@@ -103,16 +103,28 @@ async function search(gh: Session, query: string, sort: string) {
   return { items, total }
 }
 
-// Your own token can see your private sponsorships; the public site must not show them.
+// Sponsorships are a bonus signal: any failure here (scopes, limits) degrades to "none" rather
+// than failing the analysis. `privacyLevel` needs the read:user scope; without it we fall back to
+// the plain list, which can only ever include the *token owner's* own private sponsorships —
+// hence the public site should run on a throwaway token that sponsors nobody.
 async function sponsoring(gh: Session, login: string, publicOnly: boolean) {
-  if (!gh.authenticated) return { totalCount: 0, nodes: [] as { login: string }[] }
-  const data = await gh.graphql(
-    `query($login:String!){ user(login:$login){ sponsorshipsAsSponsor(first:100, activeOnly:true){ totalCount
-      nodes{ privacyLevel sponsorable{ ... on User{login} ... on Organization{login} } } } } }`,
-    { login },
-  )
-  const all: any[] = data?.user?.sponsorshipsAsSponsor?.nodes ?? []
-  const nodes = all.filter((n) => !publicOnly || n.privacyLevel === "PUBLIC").map((n) => ({ login: String(n.sponsorable?.login ?? "") })).filter((n) => n.login)
+  const none = { totalCount: 0, nodes: [] as { login: string }[] }
+  if (!gh.authenticated) return none
+  const sponsorable = "sponsorable{ ... on User{login} ... on Organization{login} }"
+  const detailed = await gh
+    .graphql(`query($login:String!){ user(login:$login){ sponsorshipsAsSponsor(first:100, activeOnly:true){ nodes{ privacyLevel ${sponsorable} } } } }`, { login })
+    .then((d) => (d?.user?.sponsorshipsAsSponsor?.nodes ?? []) as any[])
+    .catch(() => null)
+  const plain =
+    detailed ??
+    (await gh
+      .graphql(`query($login:String!){ user(login:$login){ sponsoring(first:100){ nodes{ ... on User{login} ... on Organization{login} } } } }`, { login })
+      .then((d) => ((d?.user?.sponsoring?.nodes ?? []) as any[]).map((n) => ({ privacyLevel: "PUBLIC", sponsorable: n })))
+      .catch(() => [] as any[]))
+  const nodes = plain
+    .filter((n) => !publicOnly || n.privacyLevel === "PUBLIC")
+    .map((n) => ({ login: String(n.sponsorable?.login ?? "") }))
+    .filter((n) => n.login)
   return { totalCount: nodes.length, nodes }
 }
 
