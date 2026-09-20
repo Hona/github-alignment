@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>github alignment</title>
+<style>
+  :root { --bg:#0b0c0f; --fg:#e8e8ea; --dim:#7a7d86; --line:#2a2c33; --self:#ff6b6b; --less:#4ade80; --acc:#fff; }
+  * { box-sizing:border-box }
+  html,body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace }
+  main { max-width:640px; margin:0 auto; padding:64px 20px 96px }
+  form { display:flex; gap:8px }
+  input { flex:1; background:transparent; border:0; border-bottom:1px solid var(--line); color:var(--fg); font:inherit; font-size:22px; padding:8px 0; outline:0 }
+  input:focus { border-color:var(--fg) }
+  button { background:var(--fg); color:var(--bg); border:0; font:inherit; padding:0 18px; cursor:pointer; border-radius:4px }
+  button:disabled { opacity:.4; cursor:progress }
+  #status { color:var(--dim); margin-top:16px; min-height:1.4em }
+  #result { display:none; margin-top:56px }
+  #result.on { display:block }
+  .who { display:flex; align-items:center; gap:12px; color:var(--dim); margin-bottom:40px }
+  .who img { width:28px; height:28px; border-radius:50% }
+  .track { position:relative; height:1px; background:var(--line); margin:36px 0 12px }
+  .track::before { content:""; position:absolute; left:50%; top:-5px; height:11px; width:1px; background:var(--line) }
+  .dot { position:absolute; top:-5px; width:11px; height:11px; border-radius:50%; background:var(--acc); transform:translateX(-50%); transition:left .8s cubic-bezier(.2,.8,.2,1), background .8s; left:50% }
+  .ends { display:flex; justify-content:space-between; color:var(--dim); font-size:12px; letter-spacing:.12em; text-transform:uppercase }
+  .ends .self { color:var(--self) } .ends .less { color:var(--less) }
+  .read { text-align:center; margin:40px 0 8px; font-size:44px; font-weight:600; letter-spacing:-.02em }
+  .read small { display:block; font-size:13px; color:var(--dim); font-weight:400; letter-spacing:0; margin-top:6px }
+  h2 { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); font-weight:400; margin:56px 0 16px }
+  .repo { display:grid; grid-template-columns: 1fr 120px; gap:16px; align-items:center; padding:10px 0; border-top:1px solid var(--line) }
+  .repo .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .repo .name a { color:inherit; text-decoration:none } .repo .name a:hover { text-decoration:underline }
+  .repo .meta { color:var(--dim); font-size:12px; margin-top:2px; display:flex; gap:10px; flex-wrap:wrap }
+  .tag { padding:0 6px; border-radius:3px; border:1px solid var(--line); font-size:11px }
+  .tag.dep { border-color:var(--less); color:var(--less) }
+  .tag.own { border-color:var(--self); color:var(--self) }
+  .tag.spon { border-color:#f0abfc; color:#f0abfc }
+  .mini { position:relative; height:1px; background:var(--line) }
+  .mini .dot { width:7px; height:7px; top:-3px; transition:left .5s }
+  details { margin-top:56px; color:var(--dim) }
+  summary { cursor:pointer; font-size:12px; letter-spacing:.12em; text-transform:uppercase }
+  .knobs { display:grid; grid-template-columns: 1fr 1fr; gap:14px 32px; margin-top:20px }
+  .knob label { display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px }
+  .knob input[type=range] { width:100%; accent-color:var(--fg); padding:0; border:0 }
+  .legend { margin-top:24px; font-size:12px; line-height:1.9 }
+  .legend b { color:var(--fg); font-weight:500 }
+  .err { color:var(--self) }
+</style>
+</head>
+<body>
+<main>
+  <form id="f">
+    <input id="login" placeholder="github username" autocomplete="off" autofocus />
+    <button id="go">go</button>
+  </form>
+  <div id="status"></div>
+
+  <section id="result">
+    <div class="who"><img id="avatar" alt="" /><span id="name"></span><span id="sample"></span></div>
+
+    <div class="track"><div class="dot" id="dot"></div></div>
+    <div class="ends"><span class="self">selfish</span><span class="less">selfless</span></div>
+
+    <div class="read"><span id="pct">—</span><small id="sub"></small></div>
+
+    <h2>where your effort went</h2>
+    <div id="repos"></div>
+
+    <details>
+      <summary>tweak the algorithm</summary>
+      <div class="knobs" id="knobs"></div>
+      <div class="legend">
+        each contribution gets a <b>selflessness</b> 0→1 based on who it was for:<br>
+        <b>sponsor</b> someone → 1<br>
+        PR/issue to a repo <b>your code depends on</b> → 1<br>
+        anyone else's repo → <b>external base</b>, higher if it's popular<br>
+        <b>your own / your org's</b> repo → 0 if nobody uses it, scaling up with stars+forks to <b>owned cap</b><br>
+        <br>
+        alignment = weighted mean (PR, issue, commit, sponsor weights) · 0.5 is the centre tick
+      </div>
+    </details>
+  </section>
+</main>
+
+<script>
+const KNOBS = [
+  ["pr", "PR weight", 0, 3, 0.1, 1],
+  ["issue", "issue weight", 0, 3, 0.1, 0.5],
+  ["commit", "commit weight", 0, 3, 0.05, 0.25],
+  ["sponsor", "sponsor weight", 0, 5, 0.1, 2],
+  ["ceiling", "audience ceiling (stars)", 100, 50000, 100, 5000],
+  ["ownedCap", "owned cap", 0, 1, 0.05, 0.8],
+  ["externalBase", "external base", 0, 1, 0.05, 0.8],
+]
+const k = Object.fromEntries(KNOBS.map(([id,,,,,v]) => [id, v]))
+let data = null
+
+const $ = (id) => document.getElementById(id)
+const knobs = $("knobs")
+KNOBS.forEach(([id, label, min, max, step, v]) => {
+  const el = document.createElement("div"); el.className = "knob"
+  el.innerHTML = `<label><span>${label}</span><span id="v-${id}">${v}</span></label><input type="range" min="${min}" max="${max}" step="${step}" value="${v}">`
+  el.querySelector("input").oninput = (e) => { k[id] = +e.target.value; $("v-"+id).textContent = k[id]; render() }
+  knobs.append(el)
+})
+
+const audience = (r) => Math.min(1, Math.log10(r.stars + 2 * r.forks + 1) / Math.log10(k.ceiling + 1))
+const selflessness = (r) => {
+  if (r.sponsor) return 1
+  if (r.owned) return audience(r) * k.ownedCap
+  if (r.dependency) return 1
+  return Math.max(k.externalBase, audience(r))
+}
+const color = (s) => `color-mix(in oklab, var(--self) ${(1 - s) * 100}%, var(--less))`
+
+function render() {
+  if (!data) return
+  const rows = Object.values(data.repos).map((r) => {
+    const its = data.items.filter((i) => i.repo === r.name)
+    const w = its.reduce((a, i) => a + k[i.kind], 0)
+    return { r, its, w, s: selflessness(r) }
+  }).filter((x) => x.w > 0).sort((a, b) => b.w - a.w)
+
+  const total = rows.reduce((a, x) => a + x.w, 0)
+  const score = total ? rows.reduce((a, x) => a + x.w * x.s, 0) / total : 0.5
+  const dot = $("dot")
+  dot.style.left = `${score * 100}%`
+  dot.style.background = color(score)
+  const side = score >= 0.5 ? "selfless" : "selfish"
+  const pct = Math.round(Math.abs(score - 0.5) * 200)
+  $("pct").textContent = `${pct}% ${side}`
+  $("pct").style.color = color(score)
+  const dep = rows.filter((x) => x.r.dependency).length
+  const ext = rows.filter((x) => !x.r.owned && !x.r.dependency && !x.r.sponsor).length
+  const own = rows.filter((x) => x.r.owned).length
+  $("sub").textContent = `${own} own · ${ext} external · ${dep} upstream deps · ${data.sampled.sponsoring} sponsoring`
+
+  $("repos").innerHTML = rows.map(({ r, its, w, s }) => {
+    const n = (kind) => its.filter((i) => i.kind === kind).length
+    const counts = [["pr","PR"],["issue","issue"],["commit","commit"],["sponsor","sponsor"]]
+      .filter(([kk]) => n(kk)).map(([kk, l]) => `${n(kk)} ${l}${n(kk) > 1 && kk !== "sponsor" ? "s" : ""}`).join(" · ")
+    const tags = [r.owned && `<span class="tag own">yours</span>`, r.dependency && `<span class="tag dep">upstream dep</span>`, r.sponsor && `<span class="tag spon">sponsor</span>`].filter(Boolean).join("")
+    const href = r.sponsor ? `https://github.com/${r.name.slice(1)}` : `https://github.com/${r.name}`
+    return `<div class="repo">
+      <div><div class="name"><a href="${href}" target="_blank">${r.name}</a> ${tags}</div>
+      <div class="meta"><span>${counts}</span>${r.sponsor ? "" : `<span>★ ${r.stars}</span>`}<span>${Math.round(w / total * 100)}% of effort</span></div></div>
+      <div class="mini" title="selflessness ${s.toFixed(2)}"><div class="dot" style="left:${s * 100}%;background:${color(s)}"></div></div>
+    </div>`
+  }).join("")
+}
+
+$("f").onsubmit = async (e) => {
+  e.preventDefault()
+  const login = $("login").value.trim()
+  if (!login) return
+  $("go").disabled = true
+  $("status").textContent = "reading your last ~100 PRs, issues, commits, your deps, your sponsorships…"
+  $("status").className = ""
+  try {
+    const res = await fetch(`/api/${encodeURIComponent(login)}`)
+    const json = await res.json()
+    if (json.error) throw new Error(json.error)
+    data = json
+    $("avatar").src = data.avatar
+    $("name").textContent = data.login
+    $("sample").textContent = `· sampled ${data.items.length} contributions`
+    $("status").textContent = ""
+    $("result").classList.add("on")
+    render()
+    history.replaceState(null, "", `?u=${encodeURIComponent(data.login)}`)
+  } catch (err) {
+    $("status").textContent = err.message
+    $("status").className = "err"
+  }
+  $("go").disabled = false
+}
+
+const u = new URLSearchParams(location.search).get("u")
+if (u) { $("login").value = u; $("f").requestSubmit() }
+</script>
+</body>
+</html>
