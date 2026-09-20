@@ -4,7 +4,10 @@
   "description": "Are you selfish or selfless on GitHub? One line, one dot.",
   "license": "MIT",
   "author": "Hona",
-  "repository": "github:Hona/github-alignment",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hona/github-alignment.git"
+  },
   "homepage": "https://github-alignment.hona.dev",
   "type": "module",
   "bin": {
