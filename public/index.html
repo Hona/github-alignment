@@ -49,6 +49,9 @@
   #tokbox summary { font-size:11px; letter-spacing:.08em }
   #tokbox input { font-size:13px; width:100%; margin-top:8px }
   .stale { color:var(--dim); font-size:12px }
+  .spark { display:block; margin:18px auto 0; overflow:visible }
+  .spark path { transition:d .6s ease }
+  .spark circle { transition:cx .6s ease, cy .6s ease, fill .6s }
 </style>
 </head>
 <body>
@@ -69,6 +72,12 @@
     <div class="ends"><span class="self">selfish</span><span class="less">selfless</span></div>
 
     <div class="read"><span id="pct">—</span><small id="sub"></small></div>
+    <svg class="spark" id="spark" viewBox="0 0 240 40" width="240" height="40" aria-hidden="true">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--less)"/><stop offset="1" stop-color="var(--self)"/></linearGradient></defs>
+      <line x1="0" y1="20" x2="240" y2="20" stroke="var(--line)" stroke-dasharray="2 4"/>
+      <path id="spark-path" fill="none" stroke="url(#g)" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle id="spark-dot" r="3.5" fill="var(--acc)"/>
+    </svg>
 
     <h2>where your effort went</h2>
     <div id="repos"></div>
@@ -120,6 +129,33 @@ const selflessness = (r) => {
 }
 const color = (s) => `color-mix(in oklab, var(--self) ${(1 - s) * 100}%, var(--less))`
 
+// Alignment over the window: a 14-day rolling weighted mean, sampled 60 times. Sponsorships
+// have no date so they're left out here.
+function sparkline() {
+  const W = 240, H = 40, PAD = 4, N = 60, SPAN = 14 * 864e5
+  const dated = data.items.filter((i) => i.at && k[i.kind] > 0)
+    .map((i) => ({ t: Date.parse(i.at), w: k[i.kind], s: selflessness(data.repos[i.repo]) }))
+  const end = Date.now(), start = end - data.window.days * 864e5
+  let last = null
+  const pts = Array.from({ length: N }, (_, n) => {
+    const t = start + (end - start) * n / (N - 1)
+    const win = dated.filter((i) => i.t <= t && i.t > t - SPAN)
+    const tot = win.reduce((a, i) => a + i.w, 0)
+    if (tot) last = win.reduce((a, i) => a + i.w * i.s, 0) / tot
+    return last
+  })
+  const first = pts.findIndex((p) => p !== null)
+  const xy = (n, s) => [W * n / (N - 1), PAD + (1 - s) * (H - 2 * PAD)]
+  const d = pts.map((p, n) => p === null ? null : xy(n, p)).filter(Boolean)
+    .map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ")
+  $("spark-path").setAttribute("d", d)
+  const dot = $("spark-dot")
+  if (first < 0) return dot.setAttribute("r", "0")
+  const [x, y] = xy(N - 1, pts[N - 1])
+  dot.setAttribute("r", "3.5"); dot.setAttribute("cx", x); dot.setAttribute("cy", y)
+  dot.setAttribute("fill", color(pts[N - 1]))
+}
+
 function render() {
   if (!data) return
   const rows = Object.values(data.repos).map((r) => {
@@ -137,6 +173,7 @@ function render() {
   const pct = Math.round(Math.abs(score - 0.5) * 200)
   $("pct").textContent = `${pct}% ${side}`
   $("pct").style.color = color(score)
+  sparkline()
   const dep = rows.filter((x) => x.r.dependency).length
   const ext = rows.filter((x) => !x.r.owned && !x.r.dependency && !x.r.sponsor).length
   const own = rows.filter((x) => x.r.owned).length
