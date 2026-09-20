@@ -45,6 +45,10 @@
   .legend { margin-top:24px; font-size:12px; line-height:1.9 }
   .legend b { color:var(--fg); font-weight:500 }
   .err { color:var(--self) }
+  #tokbox { margin-top:12px; font-size:12px }
+  #tokbox summary { font-size:11px; letter-spacing:.08em }
+  #tokbox input { font-size:13px; width:100%; margin-top:8px }
+  .stale { color:var(--dim); font-size:12px }
 </style>
 </head>
 <body>
@@ -54,6 +58,9 @@
     <button id="go">go</button>
   </form>
   <div id="status"></div>
+  <details id="tokbox"><summary>have a token? bring your own quota</summary>
+    <input id="token" type="password" placeholder="ghp_… (stays in this browser, sent only to this server)" />
+  </details>
 
   <section id="result">
     <div class="who"><img id="avatar" alt="" /><span id="name"></span><span id="sample"></span></div>
@@ -149,21 +156,47 @@ function render() {
   }).join("")
 }
 
+$("token").value = localStorage.getItem("gh-token") ?? ""
+$("token").oninput = () => localStorage.setItem("gh-token", $("token").value.trim())
+
+let retryTimer = null
+function scheduleRetry(secs) {
+  clearInterval(retryTimer)
+  let left = secs
+  const tick = () => {
+    $("status").textContent = `rate limited · retrying in ${left}s · or paste a token below`
+    if (left-- > 0) return
+    clearInterval(retryTimer)
+    $("f").requestSubmit()
+  }
+  tick()
+  retryTimer = setInterval(tick, 1000)
+}
+
 $("f").onsubmit = async (e) => {
   e.preventDefault()
+  clearInterval(retryTimer)
   const login = $("login").value.trim()
   if (!login) return
   $("go").disabled = true
   $("status").textContent = "reading your last ~100 PRs, issues, commits, your deps, your sponsorships…"
   $("status").className = ""
   try {
-    const res = await fetch(`/api/${encodeURIComponent(login)}`)
-    const json = await res.json()
-    if (json.error) throw new Error(json.error)
+    const token = $("token").value.trim()
+    const res = await fetch(`/api/${encodeURIComponent(login)}`, { headers: token ? { "x-github-token": token } : {} })
+    const json = await res.json().catch(() => ({ error: `server said ${res.status}`, code: "server" }))
+    if (json.error) {
+      if (json.code === "rate_limited" && json.retryAfter <= 120 && !token) scheduleRetry(json.retryAfter)
+      else $("status").textContent = json.error
+      $("status").className = "err"
+      $("go").disabled = false
+      return
+    }
     data = json
     $("avatar").src = data.avatar
     $("name").textContent = data.login
-    $("sample").textContent = `· sampled ${data.items.length} contributions`
+    const age = Math.round((Date.now() / 1000 - data.cachedAt) / 60)
+    $("sample").textContent = `· sampled ${data.items.length} contributions` + (age > 1 ? ` · ${age}m ago${data.stale ? " (stale, GitHub is busy)" : ""}` : "")
     $("status").textContent = ""
     $("result").classList.add("on")
     render()
