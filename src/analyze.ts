@@ -24,7 +24,6 @@ type Meta = { stars: number; forks: number; parent?: string }
 // Quota budget per analysis, roughly: 3–9 search calls (the scarce one: 30/min/token),
 // ~5 REST calls, ~15 GraphQL calls. Everything fan-out shaped goes through aliased GraphQL batches.
 export const WINDOW_DAYS = 90
-const SEARCH_MAX_PAGES = 3
 const DEPENDENCY_SOURCE_REPOS = 12
 const DEPENDENCY_CONCURRENCY = 2
 const REPO_META_LOOKUPS = 60
@@ -87,13 +86,13 @@ async function repoMeta(gh: Session, repos: string[], publicOnly: boolean) {
 }
 
 /**
- * Everything matching within the window, newest first, up to SEARCH_MAX_PAGES × 100.
+ * Everything matching within the window, newest first, up to maxPages × 100 (GitHub stops at 1000).
  * Returns the items and GitHub's total so the UI can say when we hit the cap.
  */
-async function search(gh: Session, query: string, sort: string) {
+async function search(gh: Session, query: string, sort: string, maxPages: number) {
   const items: any[] = []
   let total = 0
-  for (let page = 1; page <= SEARCH_MAX_PAGES; page++) {
+  for (let page = 1; page <= maxPages; page++) {
     const v = await gh.get(`/search/${query}&sort=${sort}&order=desc&per_page=100&page=${page}`)
     total = v.total_count ?? 0
     const batch: any[] = v.items ?? []
@@ -132,7 +131,13 @@ async function sponsoring(gh: Session, login: string, publicOnly: boolean) {
  * `publicOnly` is the deployed-server mode: never let the server's token surface private
  * PRs, issues, commits, org repos or dependency graphs it happens to have access to.
  */
-export async function analyze(gh: Session, rawLogin: string, publicOnly: boolean): Promise<Analysis> {
+export type AnalyzeOptions = {
+  publicOnly: boolean
+  /** Search pages per kind (100 each). The shared public site uses 3; locally on your own quota, 10 = GitHub's max. */
+  maxPages: number
+}
+
+export async function analyze(gh: Session, rawLogin: string, { publicOnly, maxPages }: AnalyzeOptions): Promise<Analysis> {
   const vis = publicOnly ? "+is:public" : ""
   const orgType = publicOnly ? "&type=public" : "&type=all"
   // /users/{x}/repos is public-only even for yourself; local mode wants your private repos too.
@@ -170,9 +175,9 @@ export async function analyze(gh: Session, rawLogin: string, publicOnly: boolean
 
   const since = new Date(Date.now() - WINDOW_DAYS * 864e5).toISOString().slice(0, 10)
   const [prs, issues, commits, sponsors, deps] = await Promise.all([
-    search(gh, `issues?q=type:pr+author:${login}${vis}+created:>=${since}&advanced_search=true`, "created"),
-    search(gh, `issues?q=type:issue+author:${login}${vis}+created:>=${since}&advanced_search=true`, "created"),
-    search(gh, `commits?q=author:${login}${vis}+author-date:>=${since}`, "author-date"),
+    search(gh, `issues?q=type:pr+author:${login}${vis}+created:>=${since}&advanced_search=true`, "created", maxPages),
+    search(gh, `issues?q=type:issue+author:${login}${vis}+created:>=${since}&advanced_search=true`, "created", maxPages),
+    search(gh, `commits?q=author:${login}${vis}+author-date:>=${since}`, "author-date", maxPages),
     sponsoring(gh, login, publicOnly),
     dependencyRepos(gh, depSources),
   ])

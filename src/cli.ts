@@ -52,7 +52,7 @@ const login =
     .then((u) => u.login as string)
     .catch(() => undefined))
 
-const handler = createHandler({ gh, store: new MemoryStore(), html, publicOnly })
+const handler = createHandler({ gh, store: new MemoryStore(), html, publicOnly, maxPages: 10 })
 
 const server = createServer(async (req, res) => {
   const request = new Request(`http://${req.headers.host ?? `localhost:${port}`}${req.url ?? "/"}`, {

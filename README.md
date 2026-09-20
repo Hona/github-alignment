@@ -12,7 +12,7 @@ runs the *same* UI on `localhost:3000` against your own `gh auth login` (or `GIT
 
 ## The algorithm
 
-Every PR, issue and commit you authored in the **last 90 days** (up to 300 of each), plus everyone
+Every PR, issue and commit you authored in the **last 90 days** (up to 300 of each on the site, 1000 via npx), plus everyone
 you sponsor, gets a **selflessness** score from 0 to 1 based on *who it was for*:
 
 | target | selflessness |

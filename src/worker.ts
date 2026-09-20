@@ -31,6 +31,7 @@ export default {
       store: new EdgeStore(),
       html,
       publicOnly: true,
+      maxPages: 3,
       allowFresh: async (r) => {
         if (!env.IP_LIMIT) return true
         const ip = r.headers.get("cf-connecting-ip") ?? "unknown"

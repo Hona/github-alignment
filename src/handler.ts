@@ -19,6 +19,7 @@ export type Options = {
   store: Store
   html: string
   publicOnly: boolean
+  maxPages: number
   maxAnalyses?: number
   /** Return false to refuse a fresh (uncached) analysis for this request. */
   allowFresh?: (req: Request) => Promise<boolean>
@@ -77,7 +78,7 @@ export function createHandler(opts: Options) {
       try {
         const gh = opts.gh.session()
         const value = await Promise.race([
-          analyze(gh, login, opts.publicOnly),
+          analyze(gh, login, { publicOnly: opts.publicOnly, maxPages: opts.maxPages }),
           new Promise<never>((_, reject) => setTimeout(() => reject(timeout()), ANALYSIS_TIMEOUT)),
         ])
         const cached = { at: Math.floor(Date.now() / 1000), value }
