@@ -69,13 +69,13 @@ export function createHandler(opts: Options) {
   const inflight = new Map<string, Promise<Cached>>()
 
   // One analysis per username at a time; concurrent requests for the same name share it.
-  const run = (login: string, userToken?: string) => {
+  const run = (login: string) => {
     const existing = inflight.get(login)
     if (existing) return existing
     const p = (async () => {
       const release = await analyses.acquire(QUEUE_WAIT)
       try {
-        const gh = opts.gh.session(userToken)
+        const gh = opts.gh.session()
         const value = await Promise.race([
           analyze(gh, login, opts.publicOnly),
           new Promise<never>((_, reject) => setTimeout(() => reject(timeout()), ANALYSIS_TIMEOUT)),
@@ -112,14 +112,13 @@ export function createHandler(opts: Options) {
     const age = hit ? Date.now() / 1000 - hit.at : Infinity
     if (hit && age <= FRESH_FOR) return okResponse(hit, false)
 
-    const userToken = req.headers.get("x-github-token")?.trim() || undefined
     // Joining an analysis someone else already started is free; only new work counts against the caller.
-    if (!inflight.has(login) && !userToken && opts.allowFresh && !(await opts.allowFresh(req))) {
+    if (!inflight.has(login) && opts.allowFresh && !(await opts.allowFresh(req))) {
       return errorResponse(new GitHubError("rate_limited", "Slow down a little. Try again in a minute, or run it locally.", 60))
     }
 
     try {
-      return okResponse(await run(login, userToken), false)
+      return okResponse(await run(login), false)
     } catch (e) {
       // GitHub is unhappy but we remember an older answer: better than an error page.
       if (hit && age <= STALE_OK_FOR && !(e instanceof GitHubError && e.code === "not_found")) return okResponse(hit, true)

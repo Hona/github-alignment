@@ -66,7 +66,9 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, "127.0.0.1", () => {
   const url = `http://localhost:${port}/${login ? `?u=${encodeURIComponent(login)}` : ""}`
-  console.log(`github-alignment → ${url}  (${publicOnly ? "public data only" : "including your private repos"}, your own rate limit)`)
+  // OSC 8 makes it clickable in terminals that support hyperlinks; the rest just show the URL.
+  const link = `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`
+  console.log(`\n  github-alignment${login ? ` · ${login}` : ""}  ${publicOnly ? "public data only" : "incl. private repos"} · your own rate limit\n\n  \x1b[1m${link}\x1b[0m\n`)
   if (noOpen) return
   const [cmd, ...pre] = process.platform === "win32" ? ["cmd", "/c", "start", ""] : process.platform === "darwin" ? ["open"] : ["xdg-open"]
   spawn(cmd, [...pre, url], { stdio: "ignore", detached: true }).on("error", () => {}).unref()
