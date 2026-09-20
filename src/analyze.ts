@@ -103,13 +103,17 @@ async function search(gh: Session, query: string, sort: string) {
   return { items, total }
 }
 
-async function sponsoring(gh: Session, login: string) {
-  if (!gh.authenticated) return { totalCount: 0, nodes: [] as any[] }
+// Your own token can see your private sponsorships; the public site must not show them.
+async function sponsoring(gh: Session, login: string, publicOnly: boolean) {
+  if (!gh.authenticated) return { totalCount: 0, nodes: [] as { login: string }[] }
   const data = await gh.graphql(
-    "query($login:String!){ user(login:$login){ sponsoring(first:100){ totalCount nodes{ ... on User{login} ... on Organization{login} } } } }",
+    `query($login:String!){ user(login:$login){ sponsorshipsAsSponsor(first:100, activeOnly:true){ totalCount
+      nodes{ privacyLevel sponsorable{ ... on User{login} ... on Organization{login} } } } } }`,
     { login },
   )
-  return (data?.user?.sponsoring ?? { totalCount: 0, nodes: [] }) as { totalCount: number; nodes: { login: string }[] }
+  const all: any[] = data?.user?.sponsorshipsAsSponsor?.nodes ?? []
+  const nodes = all.filter((n) => !publicOnly || n.privacyLevel === "PUBLIC").map((n) => ({ login: String(n.sponsorable?.login ?? "") })).filter((n) => n.login)
+  return { totalCount: nodes.length, nodes }
 }
 
 /**
@@ -157,7 +161,7 @@ export async function analyze(gh: Session, rawLogin: string, publicOnly: boolean
     search(gh, `issues?q=type:pr+author:${login}${vis}+created:>=${since}&advanced_search=true`, "created"),
     search(gh, `issues?q=type:issue+author:${login}${vis}+created:>=${since}&advanced_search=true`, "created"),
     search(gh, `commits?q=author:${login}${vis}+author-date:>=${since}`, "author-date"),
-    sponsoring(gh, login),
+    sponsoring(gh, login, publicOnly),
     dependencyRepos(gh, depSources),
   ])
 
